@@ -1,0 +1,40 @@
+# Pushing a version tag (e.g. 1.0.1) builds the plugin and drafts a GitHub
+# release with the three files Obsidian downloads. Review and publish the draft.
+name: Release
+
+on:
+  push:
+    tags: ["*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Check tag matches manifest version
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="$(node -p 'require("./manifest.json").version')"
+          if [ "$tag" != "$version" ]; then
+            echo "Tag $tag doesn't match manifest.json version $version"
+            exit 1
+          fi
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --draft \
+            snapshot-diff/main.js snapshot-diff/manifest.json snapshot-diff/styles.css

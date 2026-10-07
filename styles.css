@@ -1,0 +1,181 @@
+/* Layout */
+.snapshot-diff-container {
+	padding: 0 !important;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+.snapshot-diff-header {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 16px;
+	padding: 8px 16px;
+	border-bottom: 1px solid var(--background-modifier-border);
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+	flex: 0 0 auto;
+}
+
+.snapshot-diff-side {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
+.snapshot-diff-side > span:nth-child(2) {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.snapshot-diff-tag {
+	font-weight: 600;
+	padding: 1px 8px;
+	border-radius: var(--radius-s);
+	flex: 0 0 auto;
+}
+.snapshot-diff-tag.old {
+	background: rgba(var(--color-red-rgb), 0.15);
+	color: var(--color-red);
+}
+.snapshot-diff-tag.new {
+	background: rgba(var(--color-green-rgb), 0.15);
+	color: var(--color-green);
+}
+
+.snapshot-diff-btn {
+	margin-left: auto;
+	font-size: var(--font-ui-smaller);
+	padding: 2px 10px;
+	height: auto;
+	flex: 0 0 auto;
+}
+
+.snapshot-diff-host {
+	flex: 1 1 auto;
+	overflow: auto;
+}
+
+/* Editors: look like an Obsidian note */
+.snapshot-diff-host .cm-mergeView {
+	min-height: 100%;
+}
+.snapshot-diff-host .cm-editor {
+	font-family: var(--font-text);
+	font-size: var(--font-text-size);
+	line-height: var(--line-height-normal);
+	color: var(--text-normal);
+	background: var(--background-primary);
+}
+.snapshot-diff-host .cm-editor.cm-focused {
+	outline: none;
+}
+.snapshot-diff-host .cm-content {
+	padding: 16px 20px 40vh;
+	caret-color: var(--text-normal);
+}
+.snapshot-diff-host .cm-merge-a .cm-content {
+	color: var(--text-muted);
+}
+.snapshot-diff-host .cm-mergeViewEditors {
+	gap: 0;
+}
+.snapshot-diff-host .cm-mergeViewEditor + .cm-mergeViewEditor,
+.snapshot-diff-host .cm-merge-revert {
+	border-left: 1px solid var(--background-modifier-border);
+}
+.snapshot-diff-host .cm-selectionBackground {
+	background: var(--text-selection) !important;
+}
+.snapshot-diff-host .cm-cursor {
+	border-left-color: var(--text-normal);
+}
+
+/* Diff colours: theme-aware, overriding CodeMirror's defaults */
+.snapshot-diff-host .cm-merge-a .cm-changedLine {
+	background: rgba(var(--color-red-rgb), 0.1) !important;
+}
+.snapshot-diff-host .cm-merge-b .cm-changedLine {
+	background: rgba(var(--color-green-rgb), 0.1) !important;
+}
+.snapshot-diff-host .cm-merge-a .cm-changedText {
+	background: rgba(var(--color-red-rgb), 0.35) !important;
+	text-decoration: line-through;
+	text-decoration-color: rgba(var(--color-red-rgb), 0.7);
+	border-radius: 2px;
+}
+.snapshot-diff-host .cm-merge-b .cm-changedText {
+	background: rgba(var(--color-green-rgb), 0.35) !important;
+	border-radius: 2px;
+}
+.snapshot-diff-host .cm-merge-a .cm-changedLineGutter {
+	background: var(--color-red) !important;
+}
+.snapshot-diff-host .cm-merge-b .cm-changedLineGutter {
+	background: var(--color-green) !important;
+}
+
+/* Gutters and alignment filler.
+   CodeMirror's default gutter is a light grey block; match the theme instead. */
+.snapshot-diff-host .cm-editor .cm-gutters {
+	background-color: var(--background-primary);
+	border: none;
+	border-right: 1px solid var(--background-modifier-border);
+	color: var(--text-faint);
+}
+.snapshot-diff-host .cm-editor .cm-lineNumbers .cm-gutterElement {
+	font-size: var(--font-ui-smaller);
+	padding: 0 6px 0 8px;
+}
+/* space inserted to keep the two sides aligned: hatched, so it can't be
+   mistaken for blank lines (which get a line number) */
+.snapshot-diff-host .cm-mergeSpacer {
+	background-image: repeating-linear-gradient(
+		-45deg,
+		transparent 0 6px,
+		var(--background-modifier-border) 6px 7px
+	);
+}
+
+/* Restore arrows and collapsed sections */
+.snapshot-diff-host .cm-merge-revert {
+	background: var(--background-secondary);
+}
+.snapshot-diff-host .cm-merge-revert button {
+	color: var(--text-muted);
+	background: transparent;
+	box-shadow: none;
+	cursor: pointer;
+	padding: 0 4px;
+}
+.snapshot-diff-host .cm-merge-revert button:hover {
+	color: var(--color-green);
+}
+.snapshot-diff-host .cm-collapsedLines {
+	background: var(--background-secondary) !important;
+	color: var(--text-muted) !important;
+	font-family: var(--font-interface);
+	font-size: var(--font-ui-smaller);
+}
+
+/* Compare picker */
+.snapshot-diff-suggestion {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+}
+.snapshot-diff-suggestion-icon {
+	color: var(--text-muted);
+	padding-top: 2px;
+	flex: 0 0 auto;
+}
+.snapshot-diff-suggestion-note {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+/* Name prompt */
+.snapshot-diff-name-input {
+	width: 100%;
+}
