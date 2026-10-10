@@ -1,6 +1,10 @@
-/* Layout */
+/* Layout. Selectors that override Obsidian or CodeMirror defaults are one class
+   more specific than the rule they override, instead of using !important.
+   CodeMirror adds its styles after this sheet, so a tie goes to CodeMirror. */
+.workspace-leaf-content .view-content.snapshot-diff-container {
+	padding: 0;
+}
 .snapshot-diff-container {
-	padding: 0 !important;
 	display: flex;
 	flex-direction: column;
 	overflow: hidden;
@@ -85,35 +89,35 @@
 .snapshot-diff-host .cm-merge-revert {
 	border-left: 1px solid var(--background-modifier-border);
 }
-.snapshot-diff-host .cm-selectionBackground {
-	background: var(--text-selection) !important;
+.snapshot-diff-host .cm-mergeView .cm-selectionBackground,
+.snapshot-diff-host .cm-mergeView .cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground {
+	background: var(--text-selection);
 }
 .snapshot-diff-host .cm-cursor {
 	border-left-color: var(--text-normal);
 }
 
 /* Diff colours: theme-aware, overriding CodeMirror's defaults */
-.snapshot-diff-host .cm-merge-a .cm-changedLine {
-	background: rgba(var(--color-red-rgb), 0.1) !important;
+.snapshot-diff-host .cm-mergeView .cm-merge-a .cm-changedLine {
+	background: rgba(var(--color-red-rgb), 0.1);
 }
-.snapshot-diff-host .cm-merge-b .cm-changedLine {
-	background: rgba(var(--color-green-rgb), 0.1) !important;
+.snapshot-diff-host .cm-mergeView .cm-merge-b .cm-changedLine {
+	background: rgba(var(--color-green-rgb), 0.1);
 }
-.snapshot-diff-host .cm-merge-a .cm-changedText {
-	background: rgba(var(--color-red-rgb), 0.35) !important;
+.snapshot-diff-host .cm-mergeView .cm-merge-a .cm-changedText {
+	background: rgba(var(--color-red-rgb), 0.35);
 	text-decoration: line-through;
-	text-decoration-color: rgba(var(--color-red-rgb), 0.7);
 	border-radius: 2px;
 }
-.snapshot-diff-host .cm-merge-b .cm-changedText {
-	background: rgba(var(--color-green-rgb), 0.35) !important;
+.snapshot-diff-host .cm-mergeView .cm-merge-b .cm-changedText {
+	background: rgba(var(--color-green-rgb), 0.35);
 	border-radius: 2px;
 }
-.snapshot-diff-host .cm-merge-a .cm-changedLineGutter {
-	background: var(--color-red) !important;
+.snapshot-diff-host .cm-mergeView .cm-merge-a .cm-changedLineGutter {
+	background: var(--color-red);
 }
-.snapshot-diff-host .cm-merge-b .cm-changedLineGutter {
-	background: var(--color-green) !important;
+.snapshot-diff-host .cm-mergeView .cm-merge-b .cm-changedLineGutter {
+	background: var(--color-green);
 }
 
 /* Gutters and alignment filler.
@@ -152,9 +156,9 @@
 .snapshot-diff-host .cm-merge-revert button:hover {
 	color: var(--color-green);
 }
-.snapshot-diff-host .cm-collapsedLines {
-	background: var(--background-secondary) !important;
-	color: var(--text-muted) !important;
+.snapshot-diff-host .cm-mergeView .cm-collapsedLines {
+	background: var(--background-secondary);
+	color: var(--text-muted);
 	font-family: var(--font-interface);
 	font-size: var(--font-ui-smaller);
 }
