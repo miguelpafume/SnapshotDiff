@@ -4,7 +4,7 @@ Take a snapshot of a note in one click, then compare any earlier version of it
 side by side with the live note: the whole file on both sides, with the changes
 highlighted word by word.
 
-<!-- TODO: screenshot or GIF of the diff view -->
+![A snapshot (left) compared with the live note (right), with changed words highlighted](img/SnapshotDiff_1.png)
 
 ## Features
 
@@ -94,7 +94,7 @@ If your vault is a git repository, add the snapshot folder to its `.gitignore`:
 "Snapshot Diff", install it and enable it.
 
 **Manually:** download `main.js`, `manifest.json` and `styles.css` from the
-[latest release](../../releases/latest) into
+[latest release](https://github.com/miguelpafume/SnapshotDiff/releases/latest) into
 `<vault>/.obsidian/plugins/snapshot-diff/`, then enable **Snapshot Diff** in
 **Settings → Community plugins**.
 
