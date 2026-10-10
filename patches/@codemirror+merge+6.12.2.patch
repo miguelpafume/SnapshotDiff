@@ -1,0 +1,67 @@
+diff --git a/node_modules/@codemirror/merge/dist/index.js b/node_modules/@codemirror/merge/dist/index.js
+index 8322cf9..4f6cdfd 100644
+--- a/node_modules/@codemirror/merge/dist/index.js
++++ b/node_modules/@codemirror/merge/dist/index.js
+@@ -926,14 +926,22 @@ function updateSpacers(a, b, chunks) {
+                 }));
+             }
+         }
+-        // If the viewport starts inside the unchanged range (on both
+-        // sides), add another sync at the top of the viewport. That way,
+-        // big unchanged chunks with possibly inaccurate estimated heights
+-        // won't cause the content to misalign (#1408)
+-        if (endA > posA + 1000 && posA < vpA.from && endA > vpA.from && posB < vpB.from && endB > vpB.from) {
+-            let off = Math.min(vpA.from - posA, vpB.from - posB);
+-            posA += off;
+-            posB += off;
++        // Inside an unchanged range, also align every line that is in
++        // view on both sides. A line can have a measured height on one
++        // side and only an estimated one on the other (it was rendered
++        // there earlier), so aligning only the start of the range lets
++        // the visible lines drift apart. Lines rendered on just one side
++        // are left alone: moving spacers re-estimates the heights around
++        // them, which would make the alignment oscillate.
++        let next = -1;
++        if (posA < endA) {
++            let to = Math.max(a.state.doc.lineAt(posA).to + 1, posA + Math.max(vpA.from - posA, vpB.from - posB));
++            if (to < endA && to <= vpA.to && posB + (to - posA) <= vpB.to)
++                next = to;
++        }
++        if (next > -1) {
++            posB += next - posA;
++            posA = next;
+             chunkI--;
+         }
+         else if (!chunk) {
+@@ -1197,6 +1205,7 @@ class MergeView {
+         this.revertToA = false;
+         this.revertToLeft = false;
+         this.measuring = -1;
++        this.followUps = 0;
+         this.diffConf = config.diffConfig || defaultDiffConfig;
+         let sharedExtensions = [
+             Prec.low(decorateChunks),
+@@ -1204,9 +1213,20 @@ class MergeView {
+             externalTheme,
+             Spacers,
+             EditorView.updateListener.of(update => {
+-                if (this.measuring < 0 && (update.heightChanged || update.viewportChanged) &&
+-                    !update.transactions.some(tr => tr.effects.some(e => e.is(adjustSpacers))))
+-                    this.measure();
++                if (!update.heightChanged && !update.viewportChanged)
++                    return;
++                if (!update.transactions.some(tr => tr.effects.some(e => e.is(adjustSpacers)))) {
++                    this.followUps = 0;
++                    if (this.measuring < 0)
++                        this.measure();
++                }
++                // Changing spacers makes the editor re-estimate the heights
++                // of the lines around them, so check again after our own
++                // adjustments (a bounded number of times, in case they
++                // don't settle)
++                else if (update.heightChanged && this.measuring < 0 && ++this.followUps <= 10) {
++                    this.scheduleMeasure();
++                }
+             }),
+         ];
+         let configA = [mergeConfig.of({
