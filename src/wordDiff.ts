@@ -49,6 +49,19 @@ export function wordDiff(a: string, b: string): readonly Change[] {
 	return absorbShortEqualities(changes, a).map((c) => spaceFirst(c, a, b));
 }
 
+const BOUNDARIES = "\n\"“”„«»‹›()[]{}";
+const SINGLE_QUOTES = "'‘’";
+const WORD_CHAR = /[\p{L}\p{M}\p{N}_]/u;
+
+/** Whether s[from..to) has a line break, quote or bracket (but not an apostrophe inside a word). */
+function hasBoundary(s: string, from: number, to: number) {
+	for (let i = from; i < to; i++) {
+		if (BOUNDARIES.includes(s[i])) return true;
+		if (SINGLE_QUOTES.includes(s[i]) && !(WORD_CHAR.test(s[i - 1] ?? "") && WORD_CHAR.test(s[i + 1] ?? ""))) return true;
+	}
+	return false;
+}
+
 // A word added between two others can come out as "canvas " or " canvas": the
 // diff picks either. Put the space first, as it is for a word added before a
 // period or at the end of a line, so added and removed words all look alike.
@@ -67,7 +80,9 @@ function spaceFirst(c: Change, a: string, b: string): Change {
 // into the changes around it when it's no longer than the change on either side.
 // A pure insertion or deletion counts half its length: words added around
 // unchanged text ("a canvas bag, a brass compass") read fine as they are. A run
-// with a line break is always kept, so paragraphs still line up.
+// with a line break is always kept, so paragraphs still line up, and so is one
+// with a quote or bracket, which marks where a quotation or an aside starts or
+// ends: in "Is anyone there?" → "Hello?" only the words inside are changed.
 function absorbShortEqualities(changes: readonly Change[], a: string): Change[] {
 	const weight = (c: Change) => {
 		const lenA = c.toA - c.fromA, lenB = c.toB - c.fromB;
@@ -78,7 +93,7 @@ function absorbShortEqualities(changes: readonly Change[], a: string): Change[] 
 		// merging makes the change bigger, so the run before it may now qualify too
 		for (let prev = out[out.length - 1]; prev; prev = out[out.length - 1]) {
 			const gap = cur.fromA - prev.toA;
-			if (gap > weight(prev) || gap > weight(cur) || a.slice(prev.toA, cur.fromA).includes("\n")) break;
+			if (gap > weight(prev) || gap > weight(cur) || hasBoundary(a, prev.toA, cur.fromA)) break;
 			out.pop();
 			cur = new Change(prev.fromA, cur.toA, prev.fromB, cur.toB);
 		}

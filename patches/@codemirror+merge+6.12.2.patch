@@ -1,8 +1,33 @@
 diff --git a/node_modules/@codemirror/merge/dist/index.js b/node_modules/@codemirror/merge/dist/index.js
-index 8322cf9..4f6cdfd 100644
+index 8322cf9..040c6a8 100644
 --- a/node_modules/@codemirror/merge/dist/index.js
 +++ b/node_modules/@codemirror/merge/dist/index.js
-@@ -926,14 +926,22 @@ function updateSpacers(a, b, chunks) {
+@@ -294,10 +294,13 @@ function crudeMatch(a, fromA, toA, b, fromB, toB) {
+     return findDiff(a, fromA, sharedA, b, fromB, sharedB)
+         .concat(findDiff(a, sharedA + sharedLen, toA, b, sharedB + sharedLen, toB));
+ }
+-function mergeAdjacent(changes, minGap) {
++// With `a`, never merge across a quote or bracket, so only the words inside
++// a quotation or aside are marked (Snapshot Diff patch)
++function mergeAdjacent(changes, minGap, a) {
+     for (let i = 1; i < changes.length; i++) {
+         let prev = changes[i - 1], cur = changes[i];
+-        if (prev.toA > cur.fromA - minGap && prev.toB > cur.fromB - minGap) {
++        if (prev.toA > cur.fromA - minGap && prev.toB > cur.fromB - minGap &&
++            !(a && /["“”„«»‹›()[\]{}'‘’]/.test(a.slice(prev.toA, cur.fromA)))) {
+             changes[i - 1] = new Change(prev.fromA, cur.toA, prev.fromB, cur.toB);
+             changes.splice(i--, 1);
+         }
+@@ -406,7 +409,7 @@ function makePresentable(changes, a, b) {
+         }
+         posA = change.toA;
+     }
+-    mergeAdjacent(changes, 3);
++    mergeAdjacent(changes, 3, a);
+     return changes;
+ }
+ let wordChar;
+@@ -926,14 +929,22 @@ function updateSpacers(a, b, chunks) {
                  }));
              }
          }
@@ -33,7 +58,7 @@ index 8322cf9..4f6cdfd 100644
              chunkI--;
          }
          else if (!chunk) {
-@@ -1197,6 +1205,7 @@ class MergeView {
+@@ -1197,6 +1208,7 @@ class MergeView {
          this.revertToA = false;
          this.revertToLeft = false;
          this.measuring = -1;
@@ -41,7 +66,7 @@ index 8322cf9..4f6cdfd 100644
          this.diffConf = config.diffConfig || defaultDiffConfig;
          let sharedExtensions = [
              Prec.low(decorateChunks),
-@@ -1204,9 +1213,20 @@ class MergeView {
+@@ -1204,9 +1216,20 @@ class MergeView {
              externalTheme,
              Spacers,
              EditorView.updateListener.of(update => {
