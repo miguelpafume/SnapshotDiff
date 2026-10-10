@@ -46,6 +46,9 @@ const VIEW_TYPE = "snapshot-diff-view";
 // how many versions of each kind the compare picker lists
 const PICKER_LIMIT = 5;
 
+// how far apart a delete and a create can be and still count as one rename made outside Obsidian
+const EXTERNAL_RENAME_MS = 5000;
+
 // Snapshots are plain .md files at <snapshotFolder>/<note path without .md>/<note name> <YYYY-MM-DD_HH-mm-ss>[ name].md
 // The folder ties snapshots to their note; the note name in the file name is
 // only for people browsing the folder. A dot-folder is hidden from Obsidian's
@@ -83,6 +86,10 @@ function stampPart(fileName: string, noteName: string) {
 
 function noteNameOf(path: string) {
 	return (path.split("/").pop() ?? "").replace(/\.md$/i, "");
+}
+
+function parentOf(path: string) {
+	return path.split("/").slice(0, -1).join("/");
 }
 
 function sanitize(name: string) {
@@ -189,7 +196,7 @@ class SnapshotStore {
 		const to = this.folderFor(file.path);
 		if (from === to || !(await adapter.exists(from))) return moved;
 		if (await adapter.exists(to)) return moved; // don't clobber
-		const parent = to.split("/").slice(0, -1).join("/");
+		const parent = parentOf(to);
 		if (parent) await this.ensureFolder(parent);
 		await adapter.rename(from, to);
 
@@ -676,6 +683,8 @@ export default class SnapshotDiffPlugin extends Plugin {
 	store!: SnapshotStore;
 	git!: GitHistory;
 	recovery!: FileRecovery;
+	// notes deleted or created moments ago, waiting for the other half of an outside rename
+	private recentNotes: { kind: "delete" | "create"; file: TFile; at: number }[] = [];
 
 	async onload() {
 		await this.loadSettings();
@@ -721,6 +730,11 @@ export default class SnapshotDiffPlugin extends Plugin {
 		);
 
 		this.registerEvent(this.app.vault.on("rename", (f, old) => void this.onNoteRename(f, old)));
+		// after layout ready: Obsidian fires "create" for every file while it loads the vault
+		this.app.workspace.onLayoutReady(() => {
+			this.registerEvent(this.app.vault.on("delete", (f) => this.onNoteDeletedOrCreated("delete", f)));
+			this.registerEvent(this.app.vault.on("create", (f) => this.onNoteDeletedOrCreated("create", f)));
+		});
 
 		this.addSettingTab(new SnapshotDiffSettingTab(this.app, this));
 	}
@@ -751,6 +765,33 @@ export default class SnapshotDiffPlugin extends Plugin {
 			console.error("Snapshot Diff: couldn't move snapshots after a rename", e);
 			new Notice("Couldn't move this note's snapshots — see console");
 		}
+	}
+
+	/**
+	 * Obsidian reports a rename made outside the app (a terminal, a script, an AI
+	 * agent) as a delete and a create. Pair a note that vanished with one that
+	 * appeared moments later in the same folder or under the same name, and treat
+	 * the pair as a rename. When several notes qualify, only an identical size and
+	 * modified time (which a plain rename keeps) decides; otherwise nothing moves.
+	 */
+	private onNoteDeletedOrCreated(kind: "delete" | "create", f: TAbstractFile) {
+		if (!(f instanceof TFile) || f.extension !== "md") return;
+		const now = Date.now();
+		this.recentNotes = this.recentNotes.filter((e) => now - e.at < EXTERNAL_RENAME_MS);
+		const candidates = this.recentNotes.filter(
+			(e) => e.kind !== kind && (parentOf(e.file.path) === parentOf(f.path) || e.file.name === f.name)
+		);
+		const identical = candidates.filter(
+			(e) => e.file.stat.size === f.stat.size && e.file.stat.mtime === f.stat.mtime
+		);
+		const match = identical.length === 1 ? identical[0] : candidates.length === 1 ? candidates[0] : null;
+		if (!match) {
+			this.recentNotes.push({ kind, file: f, at: now });
+			return;
+		}
+		this.recentNotes.remove(match);
+		if (kind === "create") void this.onNoteRename(f, match.file.path);
+		else void this.onNoteRename(match.file, f.path);
 	}
 
 	/** The note the user is working on, including when the diff view is focused. */
