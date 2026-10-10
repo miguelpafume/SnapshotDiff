@@ -1,6 +1,6 @@
 {
   "name": "snapshot-diff",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Take quick snapshots of a note and compare them, File recovery versions or git commits side by side with the live note. Word-level highlights, an editable current side and one-click restore of changed blocks.",
   "private": true,
   "author": "Miguel Pafume",
