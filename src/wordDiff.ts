@@ -43,7 +43,46 @@ export function wordDiff(a: string, b: string): readonly Change[] {
 	// more distinct tokens than one UTF-16 unit can encode: diff characters instead
 	if (next > 0xffff) return diff(a, b, { timeout: TIMEOUT });
 
-	return diff(A.enc, B.enc, { timeout: TIMEOUT }).map(
+	const changes = diff(A.enc, B.enc, { timeout: TIMEOUT }).map(
 		(c) => new Change(A.starts[c.fromA], A.starts[c.toA], B.starts[c.fromB], B.starts[c.toB])
 	);
+	return absorbShortEqualities(changes, a).map((c) => spaceFirst(c, a, b));
+}
+
+// A word added between two others can come out as "canvas " or " canvas": the
+// diff picks either. Put the space first, as it is for a word added before a
+// period or at the end of a line, so added and removed words all look alike.
+function spaceFirst(c: Change, a: string, b: string): Change {
+	if (c.fromA < c.toA && c.fromB < c.toB) return c; // replacement: no choice
+	const [s, from, to] = c.fromA === c.toA ? [b, c.fromB, c.toB] : [a, c.fromA, c.toA];
+	const last = s[to - 1];
+	if ((last !== " " && last !== "\t") || s[from - 1] !== last || /\s/.test(s[from])) return c;
+	// the character before is the same space, so the window can slide back by one
+	return new Change(c.fromA - 1, c.toA - 1, c.fromB - 1, c.toB - 1);
+}
+
+// Matching whole words still keeps every word the two versions share, so a
+// rewritten sentence comes out as a scatter of changes split by a stray "the",
+// "and" or ", ". Like diff-match-patch's semantic cleanup, fold an unchanged run
+// into the changes around it when it's no longer than the change on either side.
+// A pure insertion or deletion counts half its length: words added around
+// unchanged text ("a canvas bag, a brass compass") read fine as they are. A run
+// with a line break is always kept, so paragraphs still line up.
+function absorbShortEqualities(changes: readonly Change[], a: string): Change[] {
+	const weight = (c: Change) => {
+		const lenA = c.toA - c.fromA, lenB = c.toB - c.fromB;
+		return lenA && lenB ? Math.max(lenA, lenB) : (lenA + lenB) / 2;
+	};
+	const out: Change[] = [];
+	for (let cur of changes) {
+		// merging makes the change bigger, so the run before it may now qualify too
+		for (let prev = out[out.length - 1]; prev; prev = out[out.length - 1]) {
+			const gap = cur.fromA - prev.toA;
+			if (gap > weight(prev) || gap > weight(cur) || a.slice(prev.toA, cur.fromA).includes("\n")) break;
+			out.pop();
+			cur = new Change(prev.fromA, cur.toA, prev.fromB, cur.toB);
+		}
+		out.push(cur);
+	}
+	return out;
 }
