@@ -22,7 +22,8 @@ import {
 import { MergeView } from "@codemirror/merge";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
-import { EditorState } from "@codemirror/state";
+import { history, historyKeymap } from "@codemirror/commands";
+import { EditorState, Transaction } from "@codemirror/state";
 import { wordDiff } from "./wordDiff";
 
 interface SnapshotDiffSettings {
@@ -506,7 +507,17 @@ class SnapshotDiffView extends ItemView {
 				const b = this.merge.b;
 				if (disk === b.state.doc.toString()) return;
 				this.lastWritten = disk; // so the update listener doesn't write it back
-				b.dispatch({ changes: { from: 0, to: b.state.doc.length, insert: disk } });
+				// replace only the differing middle, so undo history outside it stays usable,
+				// and keep it out of history: undoing it would write the old text back over the outside edit
+				const cur = b.state.doc.toString();
+				let from = 0;
+				while (from < cur.length && from < disk.length && cur[from] === disk[from]) from++;
+				let end = 0;
+				while (end < cur.length - from && end < disk.length - from && cur[cur.length - 1 - end] === disk[disk.length - 1 - end]) end++;
+				b.dispatch({
+					changes: { from, to: cur.length - end, insert: disk.slice(from, disk.length - end) },
+					annotations: Transaction.addToHistory.of(false),
+				});
 			})
 		);
 		this.registerEvent(
@@ -643,6 +654,10 @@ class SnapshotDiffView extends ItemView {
 				doc: curText,
 				extensions: [
 					...common,
+					// without it Ctrl+Z falls through to the browser's own contenteditable undo,
+					// which CodeMirror doesn't track
+					history(),
+					keymap.of(historyKeymap),
 					// like Obsidian's editor: a bracket or quote typed over a selection
 					// wraps it, and typing one inserts its pair
 					...(autoPairBrackets(this.app) ? [closeBrackets(), keymap.of(closeBracketsKeymap)] : []),
