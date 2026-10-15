@@ -186,8 +186,8 @@ class SnapshotStore {
 
 	/**
 	 * Keep snapshots attached to a note when it's renamed or moved: move its
-	 * folder, and rename the files to the new note name. Returns the old → new
-	 * path of every file in the folder, so open diff tabs can follow.
+	 * files to the new folder, renamed to the new note name. Returns the old → new
+	 * path of every file moved, so open diff tabs can follow.
 	 */
 	async onRename(file: TAbstractFile, oldPath: string) {
 		const moved = new Map<string, string>();
@@ -196,26 +196,26 @@ class SnapshotStore {
 		const from = this.folderFor(oldPath);
 		const to = this.folderFor(file.path);
 		if (from === to || !(await adapter.exists(from))) return moved;
-		if (await adapter.exists(to)) return moved; // don't clobber
-		const parent = parentOf(to);
-		if (parent) await this.ensureFolder(parent);
-		await adapter.rename(from, to);
-
+		// Move the files one by one, never the folder: it can also hold the snapshot
+		// folders of the notes in a folder of the same name ("Projects.md" next to
+		// "Projects/"), and the target folder can already exist for the same reason.
+		const { files } = await adapter.list(from);
+		if (files.length) await this.ensureFolder(to);
 		const oldName = noteNameOf(oldPath);
 		const renamed = file.basename !== oldName; // a plain move keeps the file names
-		for (const p of (await adapter.list(to)).files) {
+		for (const p of files) {
 			const name = p.split("/").pop() ?? "";
-			let dest = p;
 			const rest = renamed ? stampPart(name, oldName) : null;
-			if (rest) {
-				const target = normalizePath(`${to}/${file.basename} ${rest}`);
-				if (target !== p && !(await adapter.exists(target))) {
-					await adapter.rename(p, target);
-					dest = target;
-				}
-			}
-			moved.set(normalizePath(`${from}/${name}`), dest);
+			const target = normalizePath(`${to}/${rest ? `${file.basename} ${rest}` : name}`);
+			if (await adapter.exists(target)) continue; // don't clobber; it stays where it was
+			await adapter.rename(p, target);
+			moved.set(p, target);
 		}
+		// remove the old folder only if nothing is left in it. recursive is true even
+		// though it's empty: with false, Obsidian's desktop adapter runs fs.rm without
+		// it, which fails on any folder (EISDIR)
+		const left = await adapter.list(from);
+		if (!left.files.length && !left.folders.length) await adapter.rmdir(from, true);
 		return moved;
 	}
 }
