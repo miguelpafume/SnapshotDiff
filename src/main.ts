@@ -795,21 +795,25 @@ export default class SnapshotDiffPlugin extends Plugin {
 
 	/**
 	 * Obsidian reports a rename made outside the app (a terminal, a script, an AI
-	 * agent) as a delete and a create. Pair a note that vanished with one that
-	 * appeared moments later in the same folder or under the same name, and treat
-	 * the pair as a rename. When several notes qualify, only an identical size and
-	 * modified time (which a plain rename keeps) decides; otherwise nothing moves.
+	 * agent) as a delete and a create. Pair a note that vanished with one of the
+	 * same size (a rename keeps the content, so a new empty note never qualifies)
+	 * that appeared moments later in the same folder or under the same name, and treat
+	 * the pair as a rename. When several notes qualify, only an identical modified
+	 * time (which a plain rename keeps) decides; otherwise nothing moves.
 	 */
 	private onNoteDeletedOrCreated(kind: "delete" | "create", f: TAbstractFile) {
 		if (!(f instanceof TFile) || f.extension !== "md") return;
 		const now = Date.now();
 		this.recentNotes = this.recentNotes.filter((e) => now - e.at < EXTERNAL_RENAME_MS);
 		const candidates = this.recentNotes.filter(
-			(e) => e.kind !== kind && (parentOf(e.file.path) === parentOf(f.path) || e.file.name === f.name)
+			(e) =>
+				e.kind !== kind &&
+				e.file.stat.size === f.stat.size &&
+				// two empty notes say nothing about being the same note: only a kept modified time does
+				(f.stat.size > 0 || e.file.stat.mtime === f.stat.mtime) &&
+				(parentOf(e.file.path) === parentOf(f.path) || e.file.name === f.name)
 		);
-		const identical = candidates.filter(
-			(e) => e.file.stat.size === f.stat.size && e.file.stat.mtime === f.stat.mtime
-		);
+		const identical = candidates.filter((e) => e.file.stat.mtime === f.stat.mtime);
 		const match = identical.length === 1 ? identical[0] : candidates.length === 1 ? candidates[0] : null;
 		if (!match) {
 			this.recentNotes.push({ kind, file: f, at: now });
