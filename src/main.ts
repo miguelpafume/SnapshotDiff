@@ -190,9 +190,8 @@ class SnapshotStore {
 	 * files to the new folder, renamed to the new note name. Returns the old → new
 	 * path of every file moved, so open diff tabs can follow.
 	 */
-	async onRename(file: TAbstractFile, oldPath: string) {
+	async onRename(file: TFile, oldPath: string) {
 		const moved = new Map<string, string>();
-		if (!(file instanceof TFile) || file.extension !== "md") return moved;
 		const adapter = this.app.vault.adapter;
 		const from = this.folderFor(oldPath);
 		const to = this.folderFor(file.path);
@@ -477,7 +476,7 @@ class SnapshotDiffView extends ItemView {
 	private headerEl!: HTMLElement;
 	private hostEl!: HTMLElement;
 	private writing = false; // true while we're saving our own edits
-	private saving: Promise<void> | null = null; // the save in progress, for flush()
+	private saving: Promise<unknown> | null = null; // the save in progress, for flush()
 	private lastWritten = "";
 
 	constructor(leaf: WorkspaceLeaf, private plugin: SnapshotDiffPlugin) {
@@ -507,11 +506,11 @@ class SnapshotDiffView extends ItemView {
 				const disk = await this.app.vault.read(this.file);
 				if (this.writing || disk === this.lastWritten) return;
 				const b = this.merge.b;
-				if (disk === b.state.doc.toString()) return;
+				const cur = b.state.doc.toString();
+				if (disk === cur) return;
 				this.lastWritten = disk; // so the update listener doesn't write it back
 				// replace only the differing middle, so undo history outside it stays usable,
 				// and keep it out of history: undoing it would write the old text back over the outside edit
-				const cur = b.state.doc.toString();
 				let from = 0;
 				while (from < cur.length && from < disk.length && cur[from] === disk[from]) from++;
 				let end = 0;
@@ -614,7 +613,7 @@ class SnapshotDiffView extends ItemView {
 			this.writing = true;
 			this.lastWritten = text;
 			// process() is atomic, unlike modify()
-			const saving = this.app.vault.process(this.file, () => text).then(() => {});
+			const saving = this.app.vault.process(this.file, () => text);
 			this.saving = saving;
 			try {
 				await saving;
@@ -840,10 +839,8 @@ export default class SnapshotDiffPlugin extends Plugin {
 
 	/** The note the user is working on, including when the diff view is focused. */
 	activeNote(silent = false): TFile | null {
-		const view = this.app.workspace.getActiveViewOfType(SnapshotDiffView);
-		const fromDiff = view ? (view.getState().file as string | undefined) : undefined;
-		const f = fromDiff ? this.app.vault.getAbstractFileByPath(fromDiff) : this.app.workspace.getActiveFile();
-		if (f instanceof TFile && f.extension === "md") return f;
+		const f = this.app.workspace.getActiveViewOfType(SnapshotDiffView)?.note ?? this.app.workspace.getActiveFile();
+		if (f?.extension === "md") return f;
 		if (!silent) new Notice("Open a Markdown note first");
 		return null;
 	}
