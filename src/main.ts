@@ -780,16 +780,30 @@ export default class SnapshotDiffPlugin extends Plugin {
 
 	/** Move a renamed note's snapshots along, and point open diff tabs at the new paths. */
 	private async onNoteRename(file: TAbstractFile, oldPath: string) {
+		if (!(file instanceof TFile) || file.extension !== "md") return;
+		let moved = new Map<string, string>();
 		try {
-			const moved = await this.store.onRename(file, oldPath);
-			if (!moved.size) return;
-			for (const l of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
-				(l.view as SnapshotDiffView).snapshotsMoved(moved);
-			}
-			this.app.workspace.requestSaveLayout();
+			moved = await this.store.onRename(file, oldPath);
 		} catch (e) {
 			console.error("Snapshot Diff: couldn't move snapshots after a rename", e);
 			new Notice("Couldn't move this note's snapshots — see console");
+		}
+		try {
+			for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
+				if (leaf.view instanceof SnapshotDiffView) {
+					leaf.view.snapshotsMoved(moved); // its TFile follows the rename by itself
+					continue;
+				}
+				// a background tab not opened since startup (deferred) only has its saved state
+				const vs = leaf.getViewState();
+				const state = vs.state as DiffViewState | undefined;
+				if (state?.file !== oldPath) continue;
+				const snapshot = state.snapshot ? moved.get(state.snapshot) : undefined;
+				await leaf.setViewState({ ...vs, state: { ...state, file: file.path, ...(snapshot ? { snapshot } : {}) } });
+			}
+			this.app.workspace.requestSaveLayout();
+		} catch (e) {
+			console.error("Snapshot Diff: couldn't update diff tabs after a rename", e);
 		}
 	}
 
@@ -925,7 +939,8 @@ export default class SnapshotDiffPlugin extends Plugin {
 	async openDiff(file: TFile, version: Version, leaf?: WorkspaceLeaf) {
 		// reuse a diff tab already showing this note, otherwise open a new tab
 		leaf ??=
-			this.app.workspace.getLeavesOfType(VIEW_TYPE).find((l) => l.view.getState().file === file.path) ??
+			// getViewState() rather than view.getState(): it also works for a tab not loaded yet (deferred)
+			this.app.workspace.getLeavesOfType(VIEW_TYPE).find((l) => l.getViewState().state?.file === file.path) ??
 			this.app.workspace.getLeaf("tab");
 		await leaf.setViewState({
 			type: VIEW_TYPE,
@@ -946,7 +961,8 @@ export default class SnapshotDiffPlugin extends Plugin {
 	/** Redraw open diff tabs, after a setting that changes how the merge view is built. */
 	async rebuildViews() {
 		for (const l of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
-			await (l.view as SnapshotDiffView).rebuild();
+			// a tab not loaded yet (deferred) is built with the current settings when it loads
+			if (l.view instanceof SnapshotDiffView) await l.view.rebuild();
 		}
 	}
 }
