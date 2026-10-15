@@ -3,6 +3,7 @@ import {
 	FileSystemAdapter,
 	FuzzySuggestModal,
 	ItemView,
+	MarkdownView,
 	Modal,
 	Notice,
 	Platform,
@@ -476,6 +477,7 @@ class SnapshotDiffView extends ItemView {
 	private headerEl!: HTMLElement;
 	private hostEl!: HTMLElement;
 	private writing = false; // true while we're saving our own edits
+	private saving: Promise<void> | null = null; // the save in progress, for flush()
 	private lastWritten = "";
 
 	constructor(leaf: WorkspaceLeaf, private plugin: SnapshotDiffPlugin) {
@@ -611,20 +613,29 @@ class SnapshotDiffView extends ItemView {
 			if (text === this.lastWritten) return;
 			this.writing = true;
 			this.lastWritten = text;
+			// process() is atomic, unlike modify()
+			const saving = this.app.vault.process(this.file, () => text).then(() => {});
+			this.saving = saving;
 			try {
-				// process() is atomic, unlike modify()
-				await this.app.vault.process(this.file, () => text);
+				await saving;
 			} finally {
 				this.writing = false;
+				if (this.saving === saving) this.saving = null;
 			}
 		},
 		600,
 		true
 	);
 
-	private async flush() {
-		// run any pending debounced save immediately, and wait for it
-		await this.save.run();
+	/** The note this tab shows, if any. */
+	get note() {
+		return this.file;
+	}
+
+	/** Write out any edit still waiting to be saved, and wait until it's on disk. */
+	async flush() {
+		await this.save.run(); // a pending debounced save, run now
+		await this.saving; // one already running
 	}
 
 	private build(oldText: string, curText: string) {
@@ -819,9 +830,24 @@ export default class SnapshotDiffPlugin extends Plugin {
 		return null;
 	}
 
+	/**
+	 * Write out edits to `file` that open tabs haven't saved yet: Obsidian's editor
+	 * saves about 2 s after the last keystroke, a diff tab 600 ms after.
+	 */
+	private async saveOpenEdits(file: TFile) {
+		const saves: Promise<void>[] = [];
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			const view = leaf.view;
+			if (view instanceof MarkdownView && view.file === file) saves.push(view.save());
+			else if (view instanceof SnapshotDiffView && view.note === file) saves.push(view.flush());
+		});
+		await Promise.all(saves);
+	}
+
 	async takeSnapshot(file: TFile, askName: boolean) {
 		const save = async (name: string) => {
 			try {
+				await this.saveOpenEdits(file);
 				const s = await this.store.create(file, name);
 				const pruned = await this.store.prune(file, this.settings.maxSnapshots);
 				new Notice(
