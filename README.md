@@ -51,6 +51,7 @@ version and **Open note** opens the note in a regular tab.
 | Maximum snapshots per note | 5 | When a new snapshot goes over the limit, that note's oldest snapshots are deleted. Set to 0 for no limit. |
 | Collapse unchanged sections | Off | Fold long unchanged stretches in the diff. |
 | Show restore arrows | On | Show the arrows that copy a block back into the note. |
+| Open the diff where you were reading | On | Scroll a new diff to the line that was at the top of the note, instead of the start of the file. |
 
 You can change the snapshot limit to whatever suits you. High limits aren't
 recommended, especially in large vaults: every snapshot is a full copy of its

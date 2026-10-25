@@ -33,6 +33,7 @@ interface SnapshotDiffSettings {
 	showRevertControls: boolean;
 	askForName: boolean;
 	maxSnapshots: number; // per note; 0 = no limit
+	keepScrollPosition: boolean;
 }
 
 const DEFAULT_SETTINGS: SnapshotDiffSettings = {
@@ -41,6 +42,7 @@ const DEFAULT_SETTINGS: SnapshotDiffSettings = {
 	showRevertControls: true,
 	askForName: false,
 	maxSnapshots: 5,
+	keepScrollPosition: true,
 };
 
 const VIEW_TYPE = "snapshot-diff-view";
@@ -498,6 +500,8 @@ class SnapshotDiffView extends ItemView {
 		this.contentEl.addClass("snapshot-diff-container");
 		this.headerEl = this.contentEl.createDiv("snapshot-diff-header");
 		this.hostEl = this.contentEl.createDiv("snapshot-diff-host");
+		// printing turns CodeMirror's flag off again afterwards
+		this.registerDomEvent(this.hostEl, "scroll", () => this.drawAll());
 
 		// live note changed elsewhere (another tab, sync, git checkout...)
 		this.registerEvent(
@@ -631,6 +635,48 @@ class SnapshotDiffView extends ItemView {
 		return this.file;
 	}
 
+	/** The line of the note (0-based) at the top of the tab, or null before a diff is shown. */
+	topLine(): number | null {
+		const b = this.merge?.b;
+		if (!b) return null;
+		// a couple of pixels down: scrollToLine() puts a line's top right at the edge, and rounding
+		// could otherwise read back the line above it
+		const block = b.lineBlockAtHeight(this.hostEl.getBoundingClientRect().top + 2 - b.documentTop);
+		return b.state.doc.lineAt(block.from).number - 1;
+	}
+
+	/** Scroll so a line of the note (0-based) sits at the top of the tab. */
+	scrollToLine(line: number) {
+		const b = this.merge?.b;
+		if (!b) return;
+		const doc = b.state.doc;
+		const pos = doc.line(Math.min(Math.max(line + 1, 1), doc.lines)).from;
+		b.dispatch({ effects: EditorView.scrollIntoView(pos, { y: "start", yMargin: 0 }) });
+		// That first scroll lands short: the merge view inserts its alignment spacers after the first
+		// render, which moves the lines down. So check where the line ended up each frame and fix it,
+		// until it stays put.
+		const win = this.containerEl.win;
+		let frames = 0;
+		let settled = 0;
+		const check = () => {
+			if (this.merge?.b !== b || frames++ > 20) return;
+			const top = b.coordsAtPos(pos, 1)?.top;
+			if (top !== undefined) {
+				const off = top - this.hostEl.getBoundingClientRect().top;
+				if (Math.abs(off) <= 1) {
+					if (++settled >= 2) return;
+				} else {
+					settled = 0;
+					const before = this.hostEl.scrollTop;
+					this.hostEl.scrollTop += off;
+					if (this.hostEl.scrollTop === before) return; // at the top or bottom already
+				}
+			}
+			win.requestAnimationFrame(check);
+		};
+		win.requestAnimationFrame(check);
+	}
+
 	/** Write out any edit still waiting to be saved, and wait until it's on disk. */
 	async flush() {
 		await this.save.run(); // a pending debounced save, run now
@@ -683,6 +729,26 @@ class SnapshotDiffView extends ItemView {
 			revertControls: s.showRevertControls ? "a-to-b" : undefined,
 			collapseUnchanged: s.collapseUnchanged ? { margin: 3, minSize: 6 } : undefined,
 		});
+		this.drawAll();
+	}
+
+	/**
+	 * Draw every line of both panes, not just the ones near the screen. CodeMirror normally draws
+	 * those and estimates the height of the rest; as you scroll, each estimate it swaps for a real
+	 * height moves the content and the alignment spacers (jumps, flicker, landing a line off).
+	 * Drawn in full, everything is measured once, when the diff opens, and scrolling changes nothing;
+	 * the cost is a slower open on long notes. CodeMirror has no option for it: this is what it does
+	 * while printing, through an internal flag. If that flag ever goes away, this does nothing and
+	 * the diff is drawn lazily again (the lazy-drawing branch has the workarounds that needs).
+	 */
+	private drawAll() {
+		if (!this.merge) return;
+		for (const view of [this.merge.a, this.merge.b]) {
+			const state = (view as unknown as { viewState?: { printing?: unknown } }).viewState;
+			if (typeof state?.printing !== "boolean" || state.printing) continue;
+			state.printing = true;
+			view.requestMeasure();
+		}
 	}
 
 	private renderHeader() {
@@ -934,6 +1000,8 @@ export default class SnapshotDiffPlugin extends Plugin {
 	}
 
 	async openDiff(file: TFile, version: Version, leaf?: WorkspaceLeaf) {
+		// read before the tab changes: where the note was scrolled to, to open the diff at the same place
+		const line = this.settings.keepScrollPosition ? this.topLineOf(file) : null;
 		// reuse a diff tab already showing this note, otherwise open a new tab
 		leaf ??=
 			// getViewState() rather than view.getState(): it also works for a tab not loaded yet (deferred)
@@ -945,6 +1013,20 @@ export default class SnapshotDiffPlugin extends Plugin {
 			state: { file: file.path, ...versionRef(version) },
 		});
 		await this.app.workspace.revealLeaf(leaf);
+		if (line !== null && leaf.view instanceof SnapshotDiffView) leaf.view.scrollToLine(line);
+	}
+
+	/**
+	 * The line (0-based) at the top of the active tab, if that tab shows this note:
+	 * an editor or reading view, or a diff tab (switching versions keeps its place).
+	 */
+	private topLineOf(file: TFile): number | null {
+		const { workspace } = this.app;
+		const markdown = workspace.getActiveViewOfType(MarkdownView);
+		if (markdown?.file === file) return Math.floor(markdown.currentMode.getScroll());
+		const diff = workspace.getActiveViewOfType(SnapshotDiffView);
+		if (diff?.note === file) return diff.topLine();
+		return null;
 	}
 
 	async loadSettings() {
@@ -1007,6 +1089,11 @@ class SnapshotDiffSettingTab extends PluginSettingTab {
 				name: "Show restore arrows",
 				desc: "Show a button between the panes to copy a changed block from the previous version back into the current note.",
 				control: { type: "toggle", key: "showRevertControls" },
+			},
+			{
+				name: "Open the diff where you were reading",
+				desc: "Scroll a new diff to the line that was at the top of the note, instead of the start of the file.",
+				control: { type: "toggle", key: "keepScrollPosition" },
 			},
 		];
 	}
