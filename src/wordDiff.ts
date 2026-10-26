@@ -46,7 +46,15 @@ export function wordDiff(a: string, b: string): readonly Change[] {
 	const changes = diff(A.enc, B.enc, { timeout: TIMEOUT }).map(
 		(c) => new Change(A.starts[c.fromA], A.starts[c.toA], B.starts[c.fromB], B.starts[c.toB])
 	);
-	return absorbShortEqualities(changes, a).map((c) => spaceFirst(c, a, b));
+	const absorbed = absorbShortEqualities(changes, a);
+	const out: Change[] = [];
+	for (let i = 0; i < absorbed.length; i++) {
+		// slide only within the unchanged text around it, behind the previous change as moved
+		const min = out.length ? out[out.length - 1].toA : 0;
+		const max = i + 1 < absorbed.length ? absorbed[i + 1].fromA : a.length;
+		out.push(spaceFirst(absorbed[i], a, b, min, max));
+	}
+	return out;
 }
 
 const BOUNDARIES = "\n\"“”„«»‹›()[]{}";
@@ -62,22 +70,44 @@ function hasBoundary(s: string, from: number, to: number) {
 	return false;
 }
 
-// A word added between two others can come out as "canvas " or " canvas": the
-// diff picks either. Put the space first, as it is for a word added before a
-// period or at the end of a line, so added and removed words all look alike.
-function spaceFirst(c: Change, a: string, b: string): Change {
+// An added or removed word or sentence can often sit in more than one place:
+// "canvas " or " canvas", ". Sentence 3" or " Sentence 3.", and the diff picks
+// either. Slide it to the nearest place where it starts with its space, so it
+// keeps its own punctuation and added and removed text all look alike.
+function spaceFirst(c: Change, a: string, b: string, minA: number, maxA: number): Change {
 	if (c.fromA < c.toA && c.fromB < c.toB) return c; // replacement: no choice
 	const [s, from, to] = c.fromA === c.toA ? [b, c.fromB, c.toB] : [a, c.fromA, c.toA];
-	const last = s[to - 1];
-	if ((last !== " " && last !== "\t") || s[from - 1] !== last || /\s/.test(s[from])) return c;
-	// the character before is the same space, so the window can slide back by one
-	return new Change(c.fromA - 1, c.toA - 1, c.fromB - 1, c.toB - 1);
+	const startsWithSpace = (pos: number) => (s[pos] === " " || s[pos] === "\t") && !/\s/.test(s[pos - 1] ?? "");
+	if (startsWithSpace(from)) return c;
+	// it can slide by k while the k characters it uncovers match the ones it covers
+	let back = true, forward = true;
+	for (let k = 1; back || forward; k++) {
+		back = back && c.fromA - k >= minA && s[from - k] === s[to - k];
+		forward = forward && c.toA + k <= maxA && s[from + k - 1] === s[to + k - 1];
+		if (back && startsWithSpace(from - k)) return shift(c, -k);
+		if (forward && startsWithSpace(from + k)) return shift(c, k);
+	}
+	return c;
 }
+
+const shift = (c: Change, k: number) => new Change(c.fromA + k, c.toA + k, c.fromB + k, c.toB + k);
+
+// how many changes a side is weighed over, so a long stretch of alternating
+// small edits doesn't make the cleanup quadratic
+const MAX_SIDE = 20;
 
 // Matching whole words still keeps every word the two versions share, so a
 // rewritten sentence comes out as a scatter of changes split by a stray "the",
 // "and" or ", ". Like diff-match-patch's semantic cleanup, fold an unchanged run
-// into the changes around it when it's no longer than the change on either side.
+// into the changes around it when the changes on both sides outweigh it.
+//
+// A side is weighed outward from the run, not just by the nearest change: the
+// changes there count for, the shorter unchanged runs between them count
+// against, and a longer run ends the side. Otherwise one small change next to
+// a shared word ("walked{ backward} into") keeps it unchanged in the middle of
+// a rewritten sentence, and since the diff picks between equally good matches
+// using the whole text, an edit anywhere else could decide whether that happens.
+//
 // A pure insertion or deletion counts half its length: words added around
 // unchanged text ("a canvas bag, a brass compass") read fine as they are. A run
 // with a line break is always kept, so paragraphs still line up, and so is one
@@ -88,16 +118,33 @@ function absorbShortEqualities(changes: readonly Change[], a: string): Change[] 
 		const lenA = c.toA - c.fromA, lenB = c.toB - c.fromB;
 		return lenA && lenB ? Math.max(lenA, lenB) : (lenA + lenB) / 2;
 	};
-	const out: Change[] = [];
-	for (let cur of changes) {
-		// merging makes the change bigger, so the run before it may now qualify too
-		for (let prev = out[out.length - 1]; prev; prev = out[out.length - 1]) {
-			const gap = cur.fromA - prev.toA;
-			if (gap > weight(prev) || gap > weight(cur) || hasBoundary(a, prev.toA, cur.fromA)) break;
-			out.pop();
-			cur = new Change(prev.fromA, cur.toA, prev.fromB, cur.toB);
+	let cur = changes.slice();
+	// Folding a run only makes the changes around other runs bigger, so fold every
+	// run that qualifies at once and repeat until none does; the result then
+	// doesn't depend on the order the runs are looked at.
+	for (;;) {
+		// gaps[i] is the unchanged run before cur[i]: its length, or -1 if it's always kept
+		const gaps = cur.map((c, i) => (i && !hasBoundary(a, cur[i - 1].toA, c.fromA) ? c.fromA - cur[i - 1].toA : -1));
+		const outweighs = (i: number, dir: 1 | -1) => {
+			const len = gaps[i];
+			let net = 0;
+			for (let j = dir > 0 ? i : i - 1, n = 0; j >= 0 && j < cur.length && n < MAX_SIDE; j += dir, n++) {
+				net += weight(cur[j]);
+				if (net >= len) return true;
+				const next = gaps[dir > 0 ? j + 1 : j] ?? -1;
+				if (next < 0 || next > len) return false;
+				net -= next;
+			}
+			return false;
+		};
+		const fold = gaps.map((len, i) => len >= 0 && outweighs(i, -1) && outweighs(i, 1));
+		if (!fold.includes(true)) return cur;
+		const out: Change[] = [];
+		for (let i = 0; i < cur.length; i++) {
+			const prev = out[out.length - 1];
+			if (fold[i]) out[out.length - 1] = new Change(prev.fromA, cur[i].toA, prev.fromB, cur[i].toB);
+			else out.push(cur[i]);
 		}
-		out.push(cur);
+		cur = out;
 	}
-	return out;
 }

@@ -21,14 +21,6 @@ A button and a hotkey to move between changes, so long notes don't need scrollin
 - [ ] Add up/down arrow buttons to the view header with `addAction`, next to the existing actions.
 - [ ] Decide what happens at the last change: wrap around to the first, or stop. Maybe show "Change 3 of 12" somewhere.
 
-## Whole lines highlighted when a lot was edited
-
-When a sentence or paragraph has many edits, the highlight still turns the whole line (or most of it) green/red instead of marking only the changed words.
-
-- [ ] Collect a few real examples (snapshot text + current text) that show it, so each fix can be checked against them. `wordDiff.ts` has no Obsidian imports, so they can run as a small script outside the app.
-- [ ] Find which step causes it for each example: `absorbShortEqualities` folding too much, the patched `makePresentable` / `mergeAdjacent` in `@codemirror/merge`, or the diff giving up (`wordDiff` runs with a time limit; the library falls back to an imprecise diff, see "fell back to fast, imprecise diffing" in its source).
-- [ ] Tune the rule rather than drop it: the folding is what keeps a rewritten sentence from showing stray "the"/"and" as unchanged, so the examples should cover both cases.
-
 ## Smaller chunks for "revert this chunk"
 
 The revert arrows act on whole chunks, which are sometimes too big to be useful.
