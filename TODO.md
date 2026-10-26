@@ -41,3 +41,16 @@ Let the user drag the vertical bar between the snapshot and the note to make one
 - [ ] Wrapped lines change height when a pane gets narrower, so the panes have to stay aligned during and after a drag. Check that the merge view re-aligns them; if not, call `requestMeasure()` on both editors after resizing.
 - [ ] Decide where to keep the ratio: per tab in the view state (`getState`/`setState`, so it survives a restart), as one setting for every diff tab, or both (a setting for the default, the tab keeps any drag).
 - [ ] The tab still has to work on mobile and in narrow sidebars: touch dragging, and a sensible minimum pane width.
+
+## Typing lag on long notes
+
+With every line drawn (`drawAll`), each keystroke still costs more on long notes. On a 900-line, 60k-character note it's acceptable; with a few thousand lines typing lags and the occasional keystroke freezes. The cost grows with the number of lines, not characters.
+
+- [ ] What's done: `measureChangedLinesOnly` (`src/lineHeights.ts`) re-measures only the lines that changed. In the test page (3,000 short lines, 125% scaling) that took latency from ~34 ms to ~25 ms.
+- [ ] Where the rest goes (same test): the browser's layout and paint of the whole drawn note (~20 ms, the largest part), the gutters (line numbers and change bars, ~8–10 ms), the merge view realigning the panes and placing the revert arrows (~3.5 ms). The diff itself is ~0.5 ms. About 2 keystrokes in 40 take ~70 ms, inside the browser's frame rendering, not plugin code.
+- [ ] Ruled out: lazy drawing in any form, including "measure everything once, then draw lazily". It passed the test page but brought the jitter back in Obsidian.
+- [ ] Ideas not yet taken:
+  - A setting to turn line numbers off (no gutters at all saved ~8–10 ms). Line numbers drawn with a CSS counter instead gave back ~5 ms of that.
+  - Patch `updateSpacers` / `updateRevertButtons` in `@codemirror/merge` to start from the edited chunk instead of walking all of them (~3 ms; careful, it's the alignment code).
+  - Something that cuts the browser's per-frame layout/paint without lazy drawing, e.g. CSS containment on lines. Untested; `content-visibility` is lazy rendering in disguise, so probably out.
+- [ ] Measure with the scroll test page from the `lazy-drawing` branch (`tools/scroll-test`). It needs extending again first (the version used for the numbers above was only a temporary copy): short-line notes, real keystroke latency (dispatch to the second animation frame), and CPU profiles over CDP. Runs on this machine vary 2–3× between fast and slow states, so interleave the variants and compare medians.

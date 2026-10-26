@@ -26,6 +26,7 @@ import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { history, historyKeymap } from "@codemirror/commands";
 import { EditorState, Transaction } from "@codemirror/state";
 import { wordDiff } from "./wordDiff";
+import { measureChangedLinesOnly } from "./lineHeights";
 
 interface SnapshotDiffSettings {
 	snapshotFolder: string;
@@ -480,6 +481,7 @@ class SnapshotDiffView extends ItemView {
 	private writing = false; // true while we're saving our own edits
 	private saving: Promise<unknown> | null = null; // the save in progress, for flush()
 	private lastWritten = "";
+	private stopMeasuringChanged: (() => void)[] = []; // undo measureChangedLinesOnly on both panes
 
 	constructor(leaf: WorkspaceLeaf, private plugin: SnapshotDiffPlugin) {
 		super(leaf);
@@ -539,8 +541,7 @@ class SnapshotDiffView extends ItemView {
 
 	async onClose() {
 		await this.flush();
-		this.merge?.destroy();
-		this.merge = null;
+		this.destroyMerge();
 	}
 
 	getState(): Record<string, unknown> {
@@ -684,7 +685,7 @@ class SnapshotDiffView extends ItemView {
 	}
 
 	private build(oldText: string, curText: string) {
-		this.merge?.destroy();
+		this.destroyMerge();
 		this.hostEl.empty();
 		const s = this.plugin.settings;
 
@@ -729,7 +730,19 @@ class SnapshotDiffView extends ItemView {
 			revertControls: s.showRevertControls ? "a-to-b" : undefined,
 			collapseUnchanged: s.collapseUnchanged ? { margin: 3, minSize: 6 } : undefined,
 		});
+		// with every line drawn, re-measuring them all was a large part of each keystroke
+		for (const view of [this.merge.a, this.merge.b]) {
+			const stop = measureChangedLinesOnly(view);
+			if (stop) this.stopMeasuringChanged.push(stop);
+		}
 		this.drawAll();
+	}
+
+	private destroyMerge() {
+		for (const stop of this.stopMeasuringChanged) stop();
+		this.stopMeasuringChanged = [];
+		this.merge?.destroy();
+		this.merge = null;
 	}
 
 	/**
