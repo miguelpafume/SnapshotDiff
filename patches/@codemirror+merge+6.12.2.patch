@@ -1,5 +1,5 @@
 diff --git a/node_modules/@codemirror/merge/dist/index.js b/node_modules/@codemirror/merge/dist/index.js
-index 8322cf9..9d574e1 100644
+index 8322cf9..f8cfeca 100644
 --- a/node_modules/@codemirror/merge/dist/index.js
 +++ b/node_modules/@codemirror/merge/dist/index.js
 @@ -294,10 +294,13 @@ function crudeMatch(a, fromA, toA, b, fromB, toB) {
@@ -27,3 +27,45 @@ index 8322cf9..9d574e1 100644
      return changes;
  }
  let wordChar;
+@@ -897,6 +900,21 @@ function compareSpacers(a, b) {
+     }
+     return true;
+ }
++// With every line drawn, view.lineBlockAt looks through the drawn lines one
++// by one, which made aligning the panes cost lines x chunks per update. The
++// drawn line blocks are in order, so search them by halves; outside them, ask
++// the view as before (Snapshot Diff patch)
++function lineBlockAt(view, pos) {
++    let blocks = view.viewportLineBlocks, lo = 0, hi = blocks.length;
++    while (lo < hi) {
++        let mid = (lo + hi) >> 1;
++        if (blocks[mid].to < pos)
++            lo = mid + 1;
++        else
++            hi = mid;
++    }
++    return lo < blocks.length && blocks[lo].from <= pos ? blocks[lo] : view.lineBlockAt(pos);
++}
+ function updateSpacers(a, b, chunks) {
+     let buildA = new RangeSetBuilder(), buildB = new RangeSetBuilder();
+     let spacersA = a.state.field(Spacers).iter(), spacersB = b.state.field(Spacers).iter();
+@@ -906,8 +924,8 @@ function updateSpacers(a, b, chunks) {
+         let endA = chunk ? chunk.fromA : a.state.doc.length, endB = chunk ? chunk.fromB : b.state.doc.length;
+         // A range at posA/posB is unchanged, must be aligned.
+         if (posA < endA) {
+-            let heightA = a.lineBlockAt(posA).top + offA;
+-            let heightB = b.lineBlockAt(posB).top + offB;
++            let heightA = lineBlockAt(a, posA).top + offA;
++            let heightB = lineBlockAt(b, posB).top + offB;
+             let diff = heightA - heightB;
+             if (diff < -epsilon) {
+                 offA -= diff;
+@@ -1391,7 +1409,7 @@ class MergeView {
+                 break;
+             if (chunk.fromA < vpA.from || chunk.fromB < vpB.from)
+                 continue;
+-            let top = this.a.lineBlockAt(chunk.fromA).top + "px";
++            let top = lineBlockAt(this.a, chunk.fromA).top + "px";
+             while (next && +(next.dataset.chunk) < i)
+                 next = rm(next);
+             if (next && next.dataset.chunk == String(i)) {
